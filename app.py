@@ -11,6 +11,15 @@ def safe_float(val):
         return None
 
 def process_data(store_df, ad_sheets):
+    # 来店データの列名クリーンアップ
+    store_df.columns = [str(col).strip() for col in store_df.columns]
+
+    # 日付列確認
+    if "日付" not in store_df.columns:
+        st.error("来店データに「日付」列が見つかりません。列名を確認してください。")
+        st.write("検出した列名: ", store_df.columns.tolist())
+        return None
+
     store_df["日付"] = pd.to_datetime(store_df["日付"], errors="coerce")
     ad_dfs = []
 
@@ -38,23 +47,23 @@ def process_data(store_df, ad_sheets):
 
     # 安全な指標計算
     def calc_roas(row):
-        cost = safe_float(row["Cost"])
-        sales = safe_float(row["売上（円）"])
+        cost = safe_float(row.get("Cost"))
+        sales = safe_float(row.get("売上（円）"))
         return sales / cost if cost and cost != 0 else None
 
     def calc_cpa(row):
-        cost = safe_float(row["Cost"])
-        cv = safe_float(row["CV"])
+        cost = safe_float(row.get("Cost"))
+        cv = safe_float(row.get("CV"))
         return cost / cv if cv and cv != 0 else None
 
     def calc_ltv(row):
-        sales = safe_float(row["売上（円）"])
-        cv = safe_float(row["CV"])
+        sales = safe_float(row.get("売上（円）"))
+        cv = safe_float(row.get("CV"))
         return sales / cv if cv and cv != 0 else None
 
     def calc_roi(row):
-        cost = safe_float(row["Cost"])
-        sales = safe_float(row["売上（円）"])
+        cost = safe_float(row.get("Cost"))
+        sales = safe_float(row.get("売上（円）"))
         return (sales - cost) / cost if cost and cost != 0 else None
 
     merged["ROAS"] = merged.apply(calc_roas, axis=1)
@@ -62,7 +71,7 @@ def process_data(store_df, ad_sheets):
     merged["LTV"] = merged.apply(calc_ltv, axis=1)
     merged["ROI"] = merged.apply(calc_roi, axis=1)
 
-    # ベンチマーク比較
+    # 改善コメント生成
     BENCHMARKS = {"ROAS": 1.2, "CPA": 3000, "LTV": 6000, "ROI": 0.1}
     comments = []
     roas_avg = merged["ROAS"].mean(skipna=True)
@@ -107,7 +116,7 @@ def process_data(store_df, ad_sheets):
     return output
 
 def main():
-    st.title("Webマーケ分析アプリ (完全型安全・float変換版)")
+    st.title("Webマーケ分析アプリ (完成版)")
     st.write("来店データとMETA広告データをアップロードしてください。")
 
     store_file = st.file_uploader("来店データファイル (Excel)", type="xlsx")
