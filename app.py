@@ -10,11 +10,41 @@ def safe_float(val):
     except (ValueError, TypeError):
         return None
 
-def process_data(store_df, ad_sheets):
-    # 来店データの列名クリーンアップ
-    store_df.columns = [str(col).strip() for col in store_df.columns]
+def generate_segment_comments(df, segment_col):
+    comments = []
+    grouped = df.groupby(segment_col).mean(numeric_only=True)
+    for seg, row in grouped.iterrows():
+        roas = safe_float(row.get("ROAS"))
+        cpa = safe_float(row.get("CPA"))
+        ltv = safe_float(row.get("LTV"))
+        roi = safe_float(row.get("ROI"))
 
-    # 日付列確認
+        comment = f"【{segment_col}: {seg}】\n"
+        if roas is not None and roas < 1.2:
+            comment += "- ROAS低め。訴求軸・ターゲティングを見直し、A/Bテストを強化。\n"
+        elif roas is not None:
+            comment += "- ROAS良好。投資増を検討可能。\n"
+        
+        if cpa is not None and cpa > 3000:
+            comment += "- CPA高め。CV導線（LP・CTA・フォーム）改善を推奨。\n"
+        elif cpa is not None:
+            comment += "- CPA良好。スケール検討可能。\n"
+        
+        if ltv is not None and ltv < 6000:
+            comment += "- LTV低め。リピート施策・単価UP施策強化を。\n"
+        elif ltv is not None:
+            comment += "- LTV良好。優良顧客拡大を狙いましょう。\n"
+        
+        if roi is not None and roi < 0.1:
+            comment += "- ROI低め。広告構造見直し・無駄停止を検討。\n"
+        elif roi is not None:
+            comment += "- ROI良好。オーガニック連携施策検討を。\n"
+        
+        comments.append(comment)
+    return comments
+
+def process_data(store_df, ad_sheets):
+    store_df.columns = [str(col).strip() for col in store_df.columns]
     if "日付" not in store_df.columns:
         st.error("来店データに「日付」列が見つかりません。列名を確認してください。")
         st.write("検出した列名: ", store_df.columns.tolist())
@@ -26,7 +56,6 @@ def process_data(store_df, ad_sheets):
     for sheet_name, sheet_df in ad_sheets.items():
         sheet_df.columns = [str(col).strip() for col in sheet_df.columns]
         st.write(f"{sheet_name} シートの列名一覧: ", sheet_df.columns.tolist())
-
         found = False
         for col in sheet_df.columns:
             if any(key in str(col) for key in ["日", "日付", "年月", "週次"]):
@@ -45,25 +74,25 @@ def process_data(store_df, ad_sheets):
     ad_df = pd.concat(ad_dfs, ignore_index=True)
     merged = pd.merge(ad_df, store_df, on="日付", how="outer")
 
-    # 安全な指標計算
-    def calc_roas(row):
-        cost = safe_float(row.get("Cost"))
-        sales = safe_float(row.get("売上（円）"))
+    # KPI計算
+    def calc_roas(x):
+        cost = safe_float(x.get("Cost"))
+        sales = safe_float(x.get("売上（円）"))
         return sales / cost if cost and cost != 0 else None
 
-    def calc_cpa(row):
-        cost = safe_float(row.get("Cost"))
-        cv = safe_float(row.get("CV"))
-        return cost / cv if cv and cv != 0 else None
+    def calc_cpa(x):
+        cost = safe_float(x.get("Cost"))
+        cv = safe_float(x.get("CV"))
+        return cost / cv if cost and cv and cv != 0 else None
 
-    def calc_ltv(row):
-        sales = safe_float(row.get("売上（円）"))
-        cv = safe_float(row.get("CV"))
-        return sales / cv if cv and cv != 0 else None
+    def calc_ltv(x):
+        sales = safe_float(x.get("売上（円）"))
+        cv = safe_float(x.get("CV"))
+        return sales / cv if sales and cv and cv != 0 else None
 
-    def calc_roi(row):
-        cost = safe_float(row.get("Cost"))
-        sales = safe_float(row.get("売上（円）"))
+    def calc_roi(x):
+        cost = safe_float(x.get("Cost"))
+        sales = safe_float(x.get("売上（円）"))
         return (sales - cost) / cost if cost and cost != 0 else None
 
     merged["ROAS"] = merged.apply(calc_roas, axis=1)
@@ -71,33 +100,38 @@ def process_data(store_df, ad_sheets):
     merged["LTV"] = merged.apply(calc_ltv, axis=1)
     merged["ROI"] = merged.apply(calc_roi, axis=1)
 
-    # 改善コメント生成
-    BENCHMARKS = {"ROAS": 1.2, "CPA": 3000, "LTV": 6000, "ROI": 0.1}
+    # 全体コメント
     comments = []
     roas_avg = merged["ROAS"].mean(skipna=True)
     cpa_avg = merged["CPA"].mean(skipna=True)
     ltv_avg = merged["LTV"].mean(skipna=True)
     roi_avg = merged["ROI"].mean(skipna=True)
 
-    if roas_avg < BENCHMARKS["ROAS"]:
-        comments.append("ROASが業界平均を下回っています。ターゲティングや訴求強化を推奨します。")
+    if roas_avg < 1.2:
+        comments.append("全体ROAS低め。訴求軸・ターゲティング見直し、A/Bテスト強化を。")
     else:
-        comments.append("ROASは業界平均以上です。現状の施策を維持・拡大を検討ください。")
+        comments.append("全体ROAS良好。投資増を検討可能。")
 
-    if cpa_avg > BENCHMARKS["CPA"]:
-        comments.append("CPAが高めです。クリエイティブやLP改善を推奨します。")
+    if cpa_avg > 3000:
+        comments.append("全体CPA高め。CV導線（LP・CTA・フォーム）改善を推奨。")
     else:
-        comments.append("CPAは業界平均以下で良好です。現状維持で効率化を。")
+        comments.append("全体CPA良好。スケール検討可能。")
 
-    if ltv_avg < BENCHMARKS["LTV"]:
-        comments.append("LTVが低めです。リピート促進やクロスセルを強化しましょう。")
+    if ltv_avg < 6000:
+        comments.append("全体LTV低め。リピート施策・単価UP施策強化を。")
     else:
-        comments.append("LTVは良好です。維持施策を継続しましょう。")
+        comments.append("全体LTV良好。優良顧客拡大を狙いましょう。")
 
-    if roi_avg < BENCHMARKS["ROI"]:
-        comments.append("ROIが低く、投資回収が不十分です。抜本的な施策見直しを推奨します。")
+    if roi_avg < 0.1:
+        comments.append("全体ROI低め。広告構造見直し・無駄停止を検討。")
     else:
-        comments.append("ROIは業界平均以上です。現状施策を拡大可能です。")
+        comments.append("全体ROI良好。オーガニック連携施策検討を。")
+
+    # セグメント別コメント
+    if "媒体" in merged.columns:
+        comments += generate_segment_comments(merged, "媒体")
+    if "キャンペーン" in merged.columns:
+        comments += generate_segment_comments(merged, "キャンペーン")
 
     # Excel 出力
     wb = Workbook()
@@ -116,7 +150,7 @@ def process_data(store_df, ad_sheets):
     return output
 
 def main():
-    st.title("Webマーケ分析アプリ (完成版)")
+    st.title("Webマーケ分析アプリ (強化コメント＋セグメント別提案版)")
     st.write("来店データとMETA広告データをアップロードしてください。")
 
     store_file = st.file_uploader("来店データファイル (Excel)", type="xlsx")
