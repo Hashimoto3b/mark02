@@ -1,25 +1,32 @@
 import streamlit as st
 import pandas as pd
+from io import BytesIO
+from openpyxl import Workbook
+from openpyxl.utils.dataframe import dataframe_to_rows
 
-def main():
-    st.title("列名確認ツール")
-    st.write("来店データとMETA広告データのExcelファイルをアップロードしてください。")
+def safe_float(val):
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return None
 
-    store_file = st.file_uploader("来店データファイル (Excel)", type="xlsx")
-    ad_file = st.file_uploader("META広告データファイル (Excel)", type="xlsx")
+def process_data(store_df, ad_sheets):
+    # 列名クリーンアップ
+    store_df.columns = [str(col).strip() for col in store_df.columns]
+    
+    # 日付列確認
+    if "日付" not in store_df.columns:
+        st.error("来店データに「日付」列が見つかりません。列名を確認してください。")
+        st.write("検出した列名: ", store_df.columns.tolist())
+        return None
 
-    if store_file:
-        store_df = pd.read_excel(store_file)
-        st.write("来店データの列名一覧: ", store_df.columns.tolist())
+    store_df["日付"] = pd.to_datetime(store_df["日付"], errors="coerce")
+    ad_dfs = []
 
-    if ad_file:
-        xls = pd.ExcelFile(ad_file)
-        for sheet_name in xls.sheet_names:
-            try:
-                df = pd.read_excel(xls, sheet_name=sheet_name, header=34)  # 必要に応じてheader調整
-                st.write(f"{sheet_name} シートの列名一覧: ", df.columns.tolist())
-            except Exception as e:
-                st.warning(f"{sheet_name} シートは読み込めませんでした。理由: {e}")
+    for sheet_name, sheet_df in ad_sheets.items():
+        sheet_df.columns = [str(col).strip() for col in sheet_df.columns]
+        st.write(f"{sheet_name} シートの列名一覧: ", sheet_df.columns.tolist())
 
-if __name__ == "__main__":
-    main()
+        found = False
+        for col in sheet_df.columns:
+            if any(key in str(col) for key in ["日", "日付", "年月", "週次"]):
